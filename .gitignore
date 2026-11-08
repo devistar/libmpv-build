@@ -1,0 +1,3 @@
+# Build en local (même chemin que dans le workflow)
+mpv-winbuild-cmake/
+out/

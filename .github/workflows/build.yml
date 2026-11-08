@@ -1,0 +1,180 @@
+name: Build libmpv (LGPL)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish (e.g. 2026.11.1). Empty: build only, no release."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  BIT: "64"
+  ARCH: x86_64
+
+jobs:
+  # GCC cross toolchain and Rust: long to build, cached per recipes commit.
+  toolchain:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/archlinux/archlinux:base-devel
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache key
+        id: key
+        run: |
+          source versions.env
+          echo "WINBUILD_CMAKE_COMMIT=$WINBUILD_CMAKE_COMMIT" >> "$GITHUB_ENV"
+          echo "key=toolchain-${WINBUILD_CMAKE_COMMIT}-${{ hashFiles('lgpl-config.py') }}" >> "$GITHUB_OUTPUT"
+      - name: Lookup toolchain cache
+        id: lookup
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            mpv-winbuild-cmake/build${{ env.BIT }}
+            mpv-winbuild-cmake/install_rustup
+          key: ${{ steps.key.outputs.key }}
+          lookup-only: true
+      - name: Install dependencies
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: &deps |
+          echo -e "[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
+          pacman-key --init
+          pacman-key --populate archlinux
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed git ninja cmake meson clang lld libc++ unzip ragel yasm nasm gperf lib32-gcc-libs lib32-glib2 python-cairo curl wget mimalloc python-pip 7zip shaderc
+          python -m pip install --break-system-packages roman
+      - name: Checkout recipes
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: |
+          git config --global --add safe.directory '*'
+          git clone https://github.com/shinchiro/mpv-winbuild-cmake.git
+          git -C mpv-winbuild-cmake checkout "$WINBUILD_CMAKE_COMMIT"
+          cd mpv-winbuild-cmake && python ../lgpl-config.py
+      - name: Build toolchain
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: |
+          cd mpv-winbuild-cmake
+          cmake -Wno-dev --fresh -DTARGET_ARCH=$ARCH-w64-mingw32 -DCOMPILER_TOOLCHAIN=gcc \
+            -DSINGLE_SOURCE_LOCATION=$PWD/src_packages -DRUSTUP_LOCATION=$PWD/install_rustup \
+            -G Ninja -H. -Bbuild$BIT
+          ninja -C build$BIT gcc
+          rm -rf build$BIT/toolchain
+          ninja -C build$BIT rustup
+      - name: Save toolchain cache
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            mpv-winbuild-cmake/build${{ env.BIT }}
+            mpv-winbuild-cmake/install_rustup
+          key: ${{ steps.key.outputs.key }}
+
+  build:
+    needs: toolchain
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/archlinux/archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: *deps
+      - name: Checkout recipes
+        run: |
+          source versions.env
+          export WINBUILD_CMAKE_COMMIT
+          git config --global --add safe.directory '*'
+          git clone https://github.com/shinchiro/mpv-winbuild-cmake.git
+          git -C mpv-winbuild-cmake checkout "$WINBUILD_CMAKE_COMMIT"
+          cd mpv-winbuild-cmake && python ../lgpl-config.py
+      - name: Restore toolchain
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            mpv-winbuild-cmake/build${{ env.BIT }}
+            mpv-winbuild-cmake/install_rustup
+          key: ${{ needs.toolchain.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Download sources
+        run: |
+          cd mpv-winbuild-cmake
+          cmake -Wno-dev --fresh -DTARGET_ARCH=$ARCH-w64-mingw32 -DCOMPILER_TOOLCHAIN=gcc \
+            -DSINGLE_SOURCE_LOCATION=$PWD/src_packages -DRUSTUP_LOCATION=$PWD/install_rustup \
+            -G Ninja -H. -Bbuild$BIT
+          ninja -C build$BIT download || true
+      # Before the build (fails if a package mpv needs was not downloaded): sources exactly as downloaded, patches are in the recipes.
+      - name: Collect sources
+        run: bash collect-sources.sh mpv-winbuild-cmake mpv-winbuild-cmake/build$BIT out
+      - name: Build libmpv
+        run: ninja -C mpv-winbuild-cmake/build$BIT mpv
+      - name: Check LGPL
+        run: |
+          dll=$(find mpv-winbuild-cmake/build$BIT -path '*mpv-dev-lgpl-*' -name libmpv-2.dll | head -n1)
+          [ -n "$dll" ] || { echo "libmpv-2.dll not found"; exit 1; }
+          cp "$dll" out/libmpv-2.dll
+          OBJDUMP=mpv-winbuild-cmake/build$BIT/install/bin/$ARCH-w64-mingw32-objdump \
+            bash check-lgpl.sh out/libmpv-2.dll mpv-winbuild-cmake/build$BIT | tee out/LGPL-CHECK.txt
+          cp out/LGPL-CHECK.txt "$GITHUB_STEP_SUMMARY"
+      - name: Package
+        run: |
+          cd out
+          name=libmpv-lgpl-$ARCH
+          cp ../NOTICE.md licenses/README.md
+          7z a -tzip "$name-licenses.zip" licenses MANIFEST.txt LGPL-CHECK.txt
+          xz -T0 -6 sources.tar
+          mv sources.tar.xz "$name-sources.tar.xz"
+          7z a -tzip "$name.zip" libmpv-2.dll MANIFEST.txt LGPL-CHECK.txt
+          sha256sum libmpv-2.dll "$name.zip" "$name-licenses.zip" "$name-sources.tar.xz" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: |
+            mpv-winbuild-cmake/build${{ env.BIT }}/packages/*-prefix/src/*-stamp/*.log
+            mpv-winbuild-cmake/build${{ env.BIT }}/**/ffbuild/config.log
+          if-no-files-found: ignore
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-lgpl
+          path: |
+            out/*.zip
+            out/*.tar.xz
+            out/SHA256SUMS.txt
+            out/MANIFEST.txt
+            out/LGPL-CHECK.txt
+
+  release:
+    needs: build
+    if: inputs.release_tag != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: libmpv-lgpl
+          path: out
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<EOF
+          libmpv-2.dll (x86_64) built without GPL or non-free code: mpv under LGPL 2.1 or later, FFmpeg under LGPL 3 or later.
+
+          - \`libmpv-lgpl-x86_64.zip\`: the DLL, its manifest and the LGPL check report.
+          - \`libmpv-lgpl-x86_64-sources.tar.xz\`: complete corresponding source (every package at the exact commit used, and the build recipes).
+          - \`libmpv-lgpl-x86_64-licenses.zip\`: license files of every component.
+
+          \`\`\`
+          $(cat out/LGPL-CHECK.txt)
+          \`\`\`
+          EOF
+          gh release create "${{ inputs.release_tag }}" --repo "$GITHUB_REPOSITORY" \
+            --title "libmpv ${{ inputs.release_tag }}" --notes-file notes.md \
+            out/*.zip out/*.tar.xz out/SHA256SUMS.txt
