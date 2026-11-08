@@ -10,8 +10,11 @@ What changes:
   rubberband, libzvbi, avisynth, dvdnav/dvdread), plus features FilePeak does
   not need (VapourSynth, libbluray, libssh, libsrt).
 - mpv: -Dgpl=false, libmpv only (no mpv.exe), and Lua, JavaScript, libcurl,
-  libbluray, VapourSynth, dvdnav, rubberband, OpenAL, subrandr disabled.
-- libarchive: without LZO (GPL).
+  libbluray, VapourSynth, dvdnav, rubberband, OpenAL, subrandr, libarchive, SDL2 gamepad, sixel disabled.
+- FFmpeg, player only: no external encoders (lame, libvpx, libwebp, aom, SVT-AV1, AMF, NVENC), no network
+  (OpenSSL), no QSV (libvpl), no rare formats or filters (modplug, openmpt, JPEG XL, ARIB captions, AVS3,
+  bs2b, mysofa, OpenAL). FFmpeg's own decoders cover VP8/VP9, WebP, MP3, AV1 (dav1d).
+- libarchive: without LZO (GPL), in case it comes back in the graph.
 collect-sources.sh then refuses any known GPL package left in the mpv graph.
 """
 import sys
@@ -53,6 +56,42 @@ edit(
         dep("vapoursynth"),
         dep("${ffmpeg_davs2}"),
         dep("rubberband"),
+        # Not needed to play local files: encoders, network, filters and rare formats. Fewer packages, faster
+        # build, smaller DLL, and no upstream patch that breaks when the library changes (libvpl, openssl, libbs2b).
+        dep("amf-headers"),
+        dep("lame"),
+        dep("openssl"),
+        dep("libmodplug"),
+        dep("libbs2b"),
+        dep("libvpx"),
+        dep("libwebp"),
+        dep("libmysofa"),
+        dep("libvpl"),
+        dep("libopenmpt"),
+        dep("libjxl"),
+        dep("libaribcaption"),
+        dep("aom"),
+        dep("svtav1"),
+        dep("${ffmpeg_uavs3d}"),
+        dep("openal-soft"),
+        dep("--enable-libmodplug"),
+        dep("--enable-libopenmpt"),
+        dep("--enable-libmp3lame"),
+        dep("--enable-libbs2b"),
+        dep("--enable-libvpx"),
+        dep("--enable-libwebp"),
+        dep("--enable-libaom"),
+        dep("--enable-libsvtav1"),
+        dep("${ffmpeg_uavs3d_cmd}"),
+        dep("--enable-openssl"),
+        dep("--enable-libmysofa"),
+        dep("--enable-libvpl"),
+        dep("--enable-libjxl"),
+        dep("--enable-libaribcaption"),
+        dep("--enable-nvenc"),
+        dep("--enable-amf"),
+        dep("--enable-openal"),
+        dep("--disable-decoder=libaom_av1"),
         dep("--enable-gpl"),
         dep("--enable-avisynth"),
         dep("--enable-vapoursynth"),
@@ -81,6 +120,9 @@ edit(
         dep("vapoursynth"),
         dep("subrandr"),
         dep("curl"),
+        dep("libarchive"),
+        dep("libsdl2"),
+        dep("libsixel"),
         # libmpv only: no mpv.exe package, no debug package.
         "    COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.exe                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv.exe",
         "    COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.com                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv.com",
@@ -106,6 +148,9 @@ edit(
         ("-Dvapoursynth=enabled", "-Dvapoursynth=disabled"),
         ("-Dsubrandr=enabled", "-Dsubrandr=disabled"),
         ("-Dlibcurl=enabled", "-Dlibcurl=disabled"),
+        ("-Dsdl2-gamepad=enabled", "-Dsdl2-gamepad=disabled"),
+        ("-Dlibarchive=enabled", "-Dlibarchive=disabled"),
+        ("-Dsixel=enabled", "-Dsixel=disabled"),
         (
             "${CMAKE_BINARY_DIR}/mpv-dev-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}\n    COMMAND ${RENAME} <SOURCE_DIR> ${CMAKE_BINARY_DIR}/mpv-dev-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}",
             "${CMAKE_BINARY_DIR}/mpv-dev-lgpl-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}\n    COMMAND ${RENAME} <SOURCE_DIR> ${CMAKE_BINARY_DIR}/mpv-dev-lgpl-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}",
