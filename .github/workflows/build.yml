@@ -15,6 +15,10 @@ env:
   BIT: "64"
   ARCH: x86_64
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # GCC cross toolchain and Rust: long to build, cached per recipes commit.
   toolchain:
@@ -24,16 +28,16 @@ jobs:
     outputs:
       key: ${{ steps.key.outputs.key }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Cache key
         id: key
         run: |
-          source versions.env
+          . ./versions.env
           echo "WINBUILD_CMAKE_COMMIT=$WINBUILD_CMAKE_COMMIT" >> "$GITHUB_ENV"
-          echo "key=toolchain-${WINBUILD_CMAKE_COMMIT}-${{ hashFiles('lgpl-config.py') }}" >> "$GITHUB_OUTPUT"
+          echo "key=toolchain-gcc-$ARCH-$WINBUILD_CMAKE_COMMIT" >> "$GITHUB_OUTPUT"
       - name: Lookup toolchain cache
         id: lookup
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6.1.0
         with:
           path: |
             mpv-winbuild-cmake/build${{ env.BIT }}
@@ -68,7 +72,7 @@ jobs:
           ninja -C build$BIT rustup
       - name: Save toolchain cache
         if: steps.lookup.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6.1.0
         with:
           path: |
             mpv-winbuild-cmake/build${{ env.BIT }}
@@ -81,19 +85,18 @@ jobs:
     container:
       image: ghcr.io/archlinux/archlinux:base-devel
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: *deps
       - name: Checkout recipes
         run: |
-          source versions.env
-          export WINBUILD_CMAKE_COMMIT
+          . ./versions.env
           git config --global --add safe.directory '*'
           git clone https://github.com/shinchiro/mpv-winbuild-cmake.git
           git -C mpv-winbuild-cmake checkout "$WINBUILD_CMAKE_COMMIT"
           cd mpv-winbuild-cmake && python ../lgpl-config.py
       - name: Restore toolchain
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6.1.0
         with:
           path: |
             mpv-winbuild-cmake/build${{ env.BIT }}
@@ -133,7 +136,7 @@ jobs:
           cat SHA256SUMS.txt
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs
           path: |
@@ -141,7 +144,7 @@ jobs:
             mpv-winbuild-cmake/build${{ env.BIT }}/**/ffbuild/config.log
           if-no-files-found: ignore
       - name: Upload build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: libmpv-lgpl
           path: |
@@ -156,7 +159,7 @@ jobs:
     if: inputs.release_tag != ''
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: libmpv-lgpl
           path: out
