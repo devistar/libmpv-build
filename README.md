@@ -14,9 +14,9 @@ pinned in `versions.env`:
    rubberband, libzvbi, AviSynth, dvdnav/dvdread), features the player does not need removed
    (Lua, JavaScript, libcurl, libbluray, VapourSynth, OpenAL, subrandr), libmpv only.
    Each edit is an exact match: if upstream changes, the script fails instead of guessing.
-2. All sources are downloaded, then `collect-sources.sh` archives every package mpv depends
-   on (before any build step), the recipes, the license files, and writes `MANIFEST.txt`
-   with the exact commit of each package.
+2. `collect-sources.sh` downloads every package mpv depends on and archives them before any
+   build step, with the recipes and the license files, and writes `MANIFEST.txt` with the
+   exact commit of each package.
 3. libmpv is built, then `check-lgpl.sh` reads the configuration FFmpeg and mpv actually
    used and fails the build on any GPL or non-free setting.
 4. With a `release_tag`, the DLL, the complete source and the licenses are published as a

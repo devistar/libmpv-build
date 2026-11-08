@@ -103,15 +103,15 @@ jobs:
             mpv-winbuild-cmake/install_rustup
           key: ${{ needs.toolchain.outputs.key }}
           fail-on-cache-miss: true
-      - name: Download sources
+      - name: Configure
         run: |
           cd mpv-winbuild-cmake
           cmake -Wno-dev --fresh -DTARGET_ARCH=$ARCH-w64-mingw32 -DCOMPILER_TOOLCHAIN=gcc \
             -DSINGLE_SOURCE_LOCATION=$PWD/src_packages -DRUSTUP_LOCATION=$PWD/install_rustup \
             -G Ninja -H. -Bbuild$BIT
-          ninja -C build$BIT download || true
-      # Before the build (fails if a package mpv needs was not downloaded): sources exactly as downloaded, patches are in the recipes.
-      - name: Collect sources
+      # Downloads the packages of the mpv graph and archives them before the build: sources exactly as downloaded,
+      # patches are in the recipes. Fails if a package is GPL or cannot be downloaded.
+      - name: Download and collect sources
         run: bash collect-sources.sh mpv-winbuild-cmake mpv-winbuild-cmake/build$BIT out
       - name: Build libmpv
         run: ninja -C mpv-winbuild-cmake/build$BIT mpv

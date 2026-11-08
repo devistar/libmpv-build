@@ -4,7 +4,7 @@
 # - the build recipes (mpv-winbuild-cmake after lgpl-config.py, with its patches),
 # - a manifest with the exact git commit of each package,
 # - the license files of each package (for the notices shipped with the DLL).
-# Run after `ninja download`, before building.
+# Run after cmake configure, before building (downloads what is missing itself).
 # Usage: collect-sources.sh <mpv-winbuild-cmake dir> <build dir> <output dir>
 set -euo pipefail
 
@@ -29,6 +29,10 @@ for pkg in "${packages[@]}"; do
         exit 1
     fi
 done
+
+# The `download` target of mpv-winbuild-cmake skips some packages mpv still needs (libsixel...): download exactly
+# the packages of the mpv graph.
+ninja -C "$build_dir" "${packages[@]/%/-download}"
 
 {
     echo "libmpv-2.dll - corresponding source"
