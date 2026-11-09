@@ -7,9 +7,14 @@ on:
         description: "Release tag to publish (e.g. 2026.11.1). Empty: build only, no release."
         required: false
         default: ""
+      reuse_run:
+        description: "ID of a previous run whose build to reuse (skips the build: LGPL check, packaging and release only). Empty: full build."
+        required: false
+        default: ""
 
 permissions:
   contents: write
+  actions: read
 
 env:
   BIT: "64"
@@ -22,6 +27,7 @@ defaults:
 jobs:
   # GCC cross toolchain and Rust: long to build, cached per recipes commit.
   toolchain:
+    if: inputs.reuse_run == ''
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/archlinux/archlinux:base-devel
@@ -81,8 +87,11 @@ jobs:
             mpv-winbuild-cmake/install_rustup
           key: ${{ steps.key.outputs.key }}
 
+  # Long: everything that compiles. Its result (DLL, configure logs, sources, licenses) is uploaded as the
+  # build-output artifact, which finalize can take from this run or from a previous one (reuse_run).
   build:
     needs: toolchain
+    if: inputs.reuse_run == ''
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/archlinux/archlinux:base-devel
@@ -119,25 +128,23 @@ jobs:
         run: bash collect-sources.sh mpv-winbuild-cmake mpv-winbuild-cmake/build$BIT out
       - name: Build libmpv
         run: ninja -C mpv-winbuild-cmake/build$BIT mpv
-      - name: Check LGPL
+      # The recipes delete build directories once a package is installed: keep the DLL and the configure logs
+      # (stamp directories survive) that the LGPL check reads.
+      - name: Stage build output
         run: |
           dll=$(find mpv-winbuild-cmake/build$BIT -path '*mpv-dev-lgpl-*' -name libmpv-2.dll | head -n1)
           [ -n "$dll" ] || { echo "libmpv-2.dll not found"; exit 1; }
           cp "$dll" out/libmpv-2.dll
-          OBJDUMP=mpv-winbuild-cmake/build$BIT/install/bin/$ARCH-w64-mingw32-objdump \
-            bash check-lgpl.sh out/libmpv-2.dll mpv-winbuild-cmake/build$BIT | tee out/LGPL-CHECK.txt
-          cp out/LGPL-CHECK.txt "$GITHUB_STEP_SUMMARY"
-      - name: Package
-        run: |
-          cd out
-          name=libmpv-lgpl-$ARCH
-          cp ../NOTICE.md licenses/README.md
-          7z a -tzip "$name-licenses.zip" licenses MANIFEST.txt LGPL-CHECK.txt
-          xz -T0 -6 sources.tar
-          mv sources.tar.xz "$name-sources.tar.xz"
-          7z a -tzip "$name.zip" libmpv-2.dll MANIFEST.txt LGPL-CHECK.txt
-          sha256sum libmpv-2.dll "$name.zip" "$name-licenses.zip" "$name-sources.tar.xz" > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          mkdir -p out/configure-logs
+          stamps=mpv-winbuild-cmake/build$BIT/packages
+          cp $stamps/ffmpeg-prefix/src/ffmpeg-stamp/ffmpeg-configure-out.log out/configure-logs/ffmpeg.log
+          cp $stamps/mpv-prefix/src/mpv-stamp/mpv-configure-out.log out/configure-logs/mpv.log
+          xz -T0 -6 out/sources.tar
+      - name: Upload build output
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-output
+          path: out
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v7
@@ -147,6 +154,42 @@ jobs:
             mpv-winbuild-cmake/build${{ env.BIT }}/packages/*-prefix/src/*-stamp/*.log
             mpv-winbuild-cmake/build${{ env.BIT }}/**/ffbuild/config.log
           if-no-files-found: ignore
+
+  # Short: LGPL check and packaging, on the build of this run or of reuse_run. Fixing these steps only needs
+  # a run with reuse_run, not a new build.
+  finalize:
+    needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.reuse_run != '')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils-mingw-w64-x86-64 p7zip-full
+      - name: Download build output
+        uses: actions/download-artifact@v8
+        with:
+          name: build-output
+          path: out
+          run-id: ${{ inputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Check LGPL
+        run: |
+          OBJDUMP=$ARCH-w64-mingw32-objdump \
+            bash check-lgpl.sh out/libmpv-2.dll out/configure-logs/ffmpeg.log out/configure-logs/mpv.log \
+            | tee out/LGPL-CHECK.txt
+          cp out/LGPL-CHECK.txt "$GITHUB_STEP_SUMMARY"
+      - name: Package
+        run: |
+          cd out
+          name=libmpv-lgpl-$ARCH
+          cp ../NOTICE.md licenses/README.md
+          7z a -tzip "$name-licenses.zip" licenses MANIFEST.txt LGPL-CHECK.txt
+          mv sources.tar.xz "$name-sources.tar.xz"
+          7z a -tzip "$name.zip" libmpv-2.dll MANIFEST.txt LGPL-CHECK.txt
+          sha256sum libmpv-2.dll "$name.zip" "$name-licenses.zip" "$name-sources.tar.xz" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
       - name: Upload build
         uses: actions/upload-artifact@v7
         with:
@@ -159,8 +202,8 @@ jobs:
             out/LGPL-CHECK.txt
 
   release:
-    needs: build
-    if: inputs.release_tag != ''
+    needs: finalize
+    if: ${{ !cancelled() && needs.finalize.result == 'success' && inputs.release_tag != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8

@@ -18,10 +18,16 @@ pinned in `versions.env`:
    build step, with the recipes and the license files, and writes `MANIFEST.txt` with the
    exact commit of each package.
 3. libmpv is built, then `check-lgpl.sh` reads the configuration FFmpeg and mpv actually
-   used and fails the build on any GPL or non-free setting.
+   used (their configure output) and the strings of the DLL, and fails on any GPL or
+   non-free setting.
 4. With a `release_tag`, the DLL, the complete source and the licenses are published as a
    GitHub release. Releases are never deleted: they are the source offer of the DLLs
    distributed with FilePeak.
+
+The build job uploads its result as the `build-output` artifact. To rerun only the LGPL check,
+the packaging and the release (after changing `check-lgpl.sh` or `NOTICE.md`, or to publish an
+already built DLL), start the workflow with `reuse_run` set to the ID of that run (the number at
+the end of its URL): no recompilation.
 
 ## Release assets
 
