@@ -163,11 +163,12 @@ edit(
     ],
 )
 
-# libplacebo: Direct3D 11 only, no Vulkan (see mpv above).
+# libplacebo: Direct3D 11 only, no Vulkan (see mpv above). Its Vulkan stubs are compiled anyway and include
+# <vulkan/vulkan.h>: depend on the headers (header-only package, no DLL) instead of the loader.
 edit(
     "packages/libplacebo.cmake",
-    removals=[dep("vulkan")],
     replacements=[
+        ("        vulkan\n", "        vulkan-header\n"),
         ("        -Dd3d11=enabled\n", "        -Dd3d11=enabled\n        -Dvulkan=disabled\n"),
         # The registry comes from the Vulkan headers, no longer installed.
         ("        -Dvulkan-registry='${MINGW_INSTALL_PREFIX}/share/vulkan/registry/vk.xml'\n", ""),
