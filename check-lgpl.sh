@@ -14,15 +14,13 @@ dllstrings=$(mktemp)
 trap 'rm -f "$dllstrings"' EXIT
 strings -a -n 6 "$dll" > "$dllstrings"
 
-# FFmpeg: license printed by configure, and the license strings compiled into the DLL (avutil_license...).
+# FFmpeg: license printed by configure. The license and configuration strings (avutil_license...) are only in
+# the DLL if something calls them, and mpv does not: their absence proves nothing, their GPL form fails.
 fflog="$builddir/packages/ffmpeg-prefix/src/ffmpeg-stamp/ffmpeg-configure-out.log"
 [ -f "$fflog" ] || fail "$fflog not found"
 license=$(sed -n 's/^License: //p' "$fflog")
 [ "$license" = "LGPL version 3 or later" ] || fail "FFmpeg configure reports license '$license'"
-grep -qxF "LGPL version 3 or later" "$dllstrings" || fail "FFmpeg LGPL license string not found in $dll"
-for other in "GPL version 2 or later" "GPL version 3 or later" "nonfree and unredistributable"; do
-    if grep -qxF "$other" "$dllstrings"; then fail "$dll contains FFmpeg license '$other'"; fi
-done
+if grep -qE 'license: (GPL version|nonfree)' "$dllstrings"; then fail "$dll contains a GPL or non-free FFmpeg license string"; fi
 if grep -qE -- '(^| )--enable-(gpl|nonfree)( |$)' "$dllstrings"; then fail "FFmpeg configured with --enable-gpl or --enable-nonfree"; fi
 ffconf=$(grep -m1 -E -- '(^| )--enable-' "$dllstrings" || true)
 
@@ -35,7 +33,7 @@ if grep -qw 'gpl' <<< "$features"; then fail "mpv feature list contains 'gpl'"; 
 grep -qxF -- "$features" "$dllstrings" || fail "mpv feature list of the configure log not found in $dll"
 
 echo "FFmpeg license: $license"
-echo "FFmpeg configuration: ${ffconf:-(not found in the DLL strings)}"
+echo "FFmpeg configuration: ${ffconf:-(not embedded in the DLL)}"
 echo "mpv features: $features"
 echo "Imported DLLs:"
 "${OBJDUMP:-objdump}" -p "$dll" | grep 'DLL Name' | sed 's/^\s*/  /'
