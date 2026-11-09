@@ -1,7 +1,7 @@
 #!/bin/bash
 # Fails if the built libmpv-2.dll contains GPL or non-free code.
-# Reads the configuration that FFmpeg and mpv actually used (config.h of each
-# build directory) and the strings embedded in the DLL, not the recipes.
+# The recipes delete each package's build directory once installed (postremovebuild), so config.h is gone:
+# reads what configure printed (stamp logs, kept) and checks it against the strings embedded in the DLL.
 # Usage: check-lgpl.sh path/to/libmpv-2.dll path/to/build64
 set -euo pipefail
 
@@ -9,28 +9,33 @@ dll="$1"
 builddir="$2"
 fail() { echo "LGPL CHECK FAILED: $*" >&2; exit 1; }
 
-# FFmpeg: config.h written by configure (--enable-gpl / --enable-version3 / --enable-nonfree).
-ffconfig=$(grep -rl --include=config.h '#define FFMPEG_LICENSE' "$builddir/packages" | head -n1 || true)
-[ -n "$ffconfig" ] || fail "FFmpeg config.h not found in $builddir/packages"
-license=$(sed -n 's/^#define FFMPEG_LICENSE "\(.*\)"$/\1/p' "$ffconfig")
-[ "$license" = "LGPL version 3 or later" ] || fail "FFmpeg license is '$license'"
-ffconf=$(sed -n 's/^#define FFMPEG_CONFIGURATION "\(.*\)"$/\1/p' "$ffconfig")
-for flag in --enable-gpl --enable-nonfree; do
-    if grep -q -- "$flag" <<< "$ffconf"; then fail "FFmpeg configured with $flag"; fi
+# Strings of the DLL in a file: piping into grep -q would kill strings with SIGPIPE (pipefail).
+dllstrings=$(mktemp)
+trap 'rm -f "$dllstrings"' EXIT
+strings -a -n 6 "$dll" > "$dllstrings"
+
+# FFmpeg: license printed by configure, and the license strings compiled into the DLL (avutil_license...).
+fflog="$builddir/packages/ffmpeg-prefix/src/ffmpeg-stamp/ffmpeg-configure-out.log"
+[ -f "$fflog" ] || fail "$fflog not found"
+license=$(sed -n 's/^License: //p' "$fflog")
+[ "$license" = "LGPL version 3 or later" ] || fail "FFmpeg configure reports license '$license'"
+grep -qxF "LGPL version 3 or later" "$dllstrings" || fail "FFmpeg LGPL license string not found in $dll"
+for other in "GPL version 2 or later" "GPL version 3 or later" "nonfree and unredistributable"; do
+    if grep -qxF "$other" "$dllstrings"; then fail "$dll contains FFmpeg license '$other'"; fi
 done
+if grep -qE -- '(^| )--enable-(gpl|nonfree)( |$)' "$dllstrings"; then fail "FFmpeg configured with --enable-gpl or --enable-nonfree"; fi
+ffconf=$(grep -m1 -E -- '(^| )--enable-' "$dllstrings" || true)
 
-# mpv: config.h written by meson.
-mpvconfig=$(grep -rl --include=config.h '#define FULLCONFIG' "$builddir/packages" | head -n1 || true)
-[ -n "$mpvconfig" ] || fail "mpv config.h not found in $builddir/packages"
-if grep -qE '^#define HAVE_GPL [^0]' "$mpvconfig"; then fail "mpv built with HAVE_GPL"; fi
-features=$(sed -n 's/^#define FULLCONFIG "\(.*\)"$/\1/p' "$mpvconfig")
+# mpv: feature list printed by meson, which is also FULLCONFIG compiled into the DLL.
+mpvlog="$builddir/packages/mpv-prefix/src/mpv-stamp/mpv-configure-out.log"
+[ -f "$mpvlog" ] || fail "$mpvlog not found"
+features=$(sed -n 's/^Message: List of enabled features: //p' "$mpvlog")
+[ -n "$features" ] || fail "mpv feature list not found in $mpvlog"
 if grep -qw 'gpl' <<< "$features"; then fail "mpv feature list contains 'gpl'"; fi
-
-# The DLL itself must carry the same mpv feature list (proves config.h belongs to this DLL).
-strings -a -n 6 "$dll" | grep -qxF -- "$features" || fail "mpv feature list of config.h not found in $dll"
+grep -qxF -- "$features" "$dllstrings" || fail "mpv feature list of the configure log not found in $dll"
 
 echo "FFmpeg license: $license"
-echo "FFmpeg configuration: $ffconf"
+echo "FFmpeg configuration: ${ffconf:-(not found in the DLL strings)}"
 echo "mpv features: $features"
 echo "Imported DLLs:"
 "${OBJDUMP:-objdump}" -p "$dll" | grep 'DLL Name' | sed 's/^\s*/  /'
