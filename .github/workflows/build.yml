@@ -180,6 +180,8 @@ jobs:
             bash check-lgpl.sh out/libmpv-2.dll out/configure-logs/ffmpeg.log out/configure-logs/mpv.log \
             | tee out/LGPL-CHECK.txt
           cp out/LGPL-CHECK.txt "$GITHUB_STEP_SUMMARY"
+          # Built without Vulkan: the DLL must load on machines without vulkan-1.dll.
+          if grep -qi 'vulkan-1\.dll' out/LGPL-CHECK.txt; then echo "libmpv-2.dll imports vulkan-1.dll"; exit 1; fi
       - name: Package
         run: |
           cd out

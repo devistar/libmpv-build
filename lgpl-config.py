@@ -11,6 +11,7 @@ What changes:
   not need (VapourSynth, libbluray, libssh, libsrt).
 - mpv: -Dgpl=false, libmpv only (no mpv.exe), and Lua, JavaScript, libcurl,
   libbluray, VapourSynth, dvdnav, rubberband, OpenAL, subrandr, libarchive, SDL2 gamepad, sixel disabled.
+- mpv and libplacebo without Vulkan: no vulkan-1.dll import, rendering through Direct3D 11.
 - FFmpeg, player only: no external encoders (lame, libvpx, libwebp, aom, SVT-AV1, AMF, NVENC), no network
   (OpenSSL), no QSV (libvpl), no rare formats or filters (modplug, openmpt, JPEG XL, ARIB captions, AVS3,
   bs2b, mysofa, OpenAL). FFmpeg's own decoders cover VP8/VP9, WebP, MP3, AV1 (dav1d).
@@ -123,6 +124,9 @@ edit(
         dep("libarchive"),
         dep("libsdl2"),
         dep("libsixel"),
+        # No Vulkan: the DLL would import vulkan-1.dll and fail to load where it is missing. Windows renders with
+        # Direct3D 11 (shaderc and spirv-cross stay, d3d11 needs them).
+        dep("vulkan"),
         # libmpv only: no mpv.exe package, no debug package.
         "    COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.exe                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv.exe",
         "    COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.com                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv.com",
@@ -151,10 +155,22 @@ edit(
         ("-Dsdl2-gamepad=enabled", "-Dsdl2-gamepad=disabled"),
         ("-Dlibarchive=enabled", "-Dlibarchive=disabled"),
         ("-Dsixel=enabled", "-Dsixel=disabled"),
+        ("-Dvulkan=enabled", "-Dvulkan=disabled"),
         (
             "${CMAKE_BINARY_DIR}/mpv-dev-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}\n    COMMAND ${RENAME} <SOURCE_DIR> ${CMAKE_BINARY_DIR}/mpv-dev-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}",
             "${CMAKE_BINARY_DIR}/mpv-dev-lgpl-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}\n    COMMAND ${RENAME} <SOURCE_DIR> ${CMAKE_BINARY_DIR}/mpv-dev-lgpl-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}",
         ),
+    ],
+)
+
+# libplacebo: Direct3D 11 only, no Vulkan (see mpv above).
+edit(
+    "packages/libplacebo.cmake",
+    removals=[dep("vulkan")],
+    replacements=[
+        ("        -Dd3d11=enabled\n", "        -Dd3d11=enabled\n        -Dvulkan=disabled\n"),
+        # The registry comes from the Vulkan headers, no longer installed.
+        ("        -Dvulkan-registry='${MINGW_INSTALL_PREFIX}/share/vulkan/registry/vk.xml'\n", ""),
     ],
 )
 

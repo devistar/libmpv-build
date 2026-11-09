@@ -13,6 +13,7 @@ pinned in `versions.env`:
 1. `lgpl-config.py` edits the recipes: GPL-only libraries removed (x264, x265, davs2,
    rubberband, libzvbi, AviSynth, dvdnav/dvdread), features the player does not need removed
    (Lua, JavaScript, libcurl, libbluray, VapourSynth, OpenAL, subrandr), libmpv only.
+   No Vulkan: the DLL does not import `vulkan-1.dll` and renders through Direct3D 11.
    Each edit is an exact match: if upstream changes, the script fails instead of guessing.
 2. `collect-sources.sh` downloads every package mpv depends on and archives them before any
    build step, with the recipes and the license files, and writes `MANIFEST.txt` with the
