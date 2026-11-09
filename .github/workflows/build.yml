@@ -51,7 +51,7 @@ jobs:
           pacman-key --init
           pacman-key --populate archlinux
           pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed git ninja cmake meson clang lld libc++ unzip ragel yasm nasm gperf lib32-gcc-libs lib32-glib2 python-cairo curl wget mimalloc python-pip 7zip shaderc
+          pacman -S --noconfirm --needed git ninja cmake meson clang lld libc++ unzip ragel yasm nasm gperf lib32-gcc-libs lib32-glib2 python-cairo python-jinja curl wget mimalloc python-pip 7zip shaderc
           python -m pip install --break-system-packages roman
       - name: Checkout recipes
         if: steps.lookup.outputs.cache-hit != 'true'
