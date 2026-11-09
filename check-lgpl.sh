@@ -27,11 +27,14 @@ if grep -qE 'license: (GPL version|nonfree)' "$dllstrings"; then fail "$dll cont
 if grep -qE -- '(^| )--enable-(gpl|nonfree)( |$)' "$dllstrings"; then fail "FFmpeg configured with --enable-gpl or --enable-nonfree"; fi
 ffconf=$(grep -m1 -E -- '(^| )--enable-' "$dllstrings" || true)
 
-# mpv: feature list printed by meson, which is also FULLCONFIG compiled into the DLL.
+# mpv: feature list printed by meson, also compiled into the DLL ("List of enabled features: ..."), and the meson
+# options compiled into the DLL (-Dgpl=false).
 features=$(sed -n 's/^Message: List of enabled features: //p' "$mpvlog")
 [ -n "$features" ] || fail "mpv feature list not found in $mpvlog"
 if grep -qw 'gpl' <<< "$features"; then fail "mpv feature list contains 'gpl'"; fi
-grep -qxF -- "$features" "$dllstrings" || fail "mpv feature list of the configure log not found in $dll"
+grep -qF -- "List of enabled features: $features" "$dllstrings" || fail "mpv feature list of the configure log not found in $dll"
+grep -qE -- '(^| )-Dgpl=false( |$)' "$dllstrings" || fail "mpv build options in $dll do not contain -Dgpl=false"
+if grep -qE -- '(^| )-Dgpl=true( |$)' "$dllstrings"; then fail "mpv built with -Dgpl=true"; fi
 
 echo "FFmpeg license: $license"
 echo "FFmpeg configuration: ${ffconf:-(not embedded in the DLL)}"
